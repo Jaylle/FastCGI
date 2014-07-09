@@ -930,7 +930,7 @@ void julia_fcgi_setup_worker(short int worker_number)
                         "Julia worker socket error",
                         "This error usually occurs as a result of the FastCGI server being unable to create a socket.",
                         1
-                        );
+                    );
 
                     break;
                 case -2:
@@ -942,7 +942,7 @@ void julia_fcgi_setup_worker(short int worker_number)
                         "Julia worker connection error",
                         "This error usually occurs as a result of the FastCGI server being unable to connect to a Julia worker process.",
                         1
-                        );
+                    );
 
                     break;
             }
