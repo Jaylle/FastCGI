@@ -872,7 +872,7 @@ void julia_fcgi_no_workers_available(short int worker_number)
         "Julia worker pool error",
         "This error usually occurs as a result of the FastCGI server's worker pool being empty.",
         1
-        );
+    );
 }
 
 /****
@@ -893,19 +893,19 @@ void julia_fcgi_setup_worker(short int worker_number)
     // Divide the worker into 1 controller and 1 Julia process.
 
     switch (fork()) {
-    case -1:
-        // TO DO
+        case -1:
+            // TO DO
 
-        break;
+            break;
 
-    case 0:
-        // Child process morphs into a Julia process.
+        case 0:
+            // Child process morphs into a Julia process.
 
-        execle(julia_binary_path, julia_binary_path, julia_virtual_host_path, julia_virtual_host_socket_name, (char *)0, environ);
+            execle(julia_binary_path, julia_binary_path, julia_virtual_host_path, julia_virtual_host_socket_name, (char *)0, environ);
 
-        // exec failed; return control to parent process.
+            // exec failed; return control to parent process.
 
-        exit(child_exit_status);
+            exit(child_exit_status);
     }
 
     // Controller now accepts FastCGI connections.
