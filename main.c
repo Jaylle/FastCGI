@@ -820,11 +820,11 @@ short int julia_fcgi_worker_dispatch_request(short int worker_index)
 
     if (
         connect(
-        worker_socket,
-        (struct sockaddr *) &julia_fcgi_workers[worker_index].server_address,
-        sizeof(julia_fcgi_workers[worker_index].server_address)
-        ) < 0
-        ) {
+            worker_socket,
+            (struct sockaddr *) &julia_fcgi_workers[worker_index].server_address,
+            sizeof(julia_fcgi_workers[worker_index].server_address)
+            ) < 0
+    ) {
         return -2;
     }
 
@@ -914,7 +914,7 @@ void julia_fcgi_setup_worker(short int worker_number)
         // Try to find an available worker.
 
         if ((worker_index = julia_fcgi_find_available_worker()) != -1) {
-            // If the worker isn't owned by another controller, advise that it's in use by the current controller.
+            // If the worker isn't owned by another controller, advise future requests that it's in use by the current controller.
 
             if (julia_fcgi_workers[worker_index].worker_owner_number == -1) {
                 julia_fcgi_workers[worker_index].worker_owner_number = worker_number;
@@ -923,28 +923,28 @@ void julia_fcgi_setup_worker(short int worker_number)
             // Dispatch the request to the Julia worker.
 
             switch (julia_fcgi_worker_dispatch_request(worker_index)) {
-            case -1:
-                // Socket error. This should never happen, but it's handled here anyway.
+                case -1:
+                    // Socket error. This should never happen, but it's handled here anyway.
 
-                julia_fcgi_worker_show_error(
-                    "Julia worker socket error",
-                    "This error usually occurs as a result of the FastCGI server being unable to create a socket.",
-                    1
-                    );
+                    julia_fcgi_worker_show_error(
+                        "Julia worker socket error",
+                        "This error usually occurs as a result of the FastCGI server being unable to create a socket.",
+                        1
+                        );
 
-                break;
-            case -2:
-                // Connection error. This happens if there's a problem with the Julia worker.
+                    break;
+                case -2:
+                    // Connection error. This happens if there's a problem with the Julia worker.
 
-                // TO DO: Trigger recovery of Julia worker process.
+                    // TO DO: Trigger recovery of Julia worker process.
 
-                julia_fcgi_worker_show_error(
-                    "Julia worker connection error",
-                    "This error usually occurs as a result of the FastCGI server being unable to connect to a Julia worker process.",
-                    1
-                    );
+                    julia_fcgi_worker_show_error(
+                        "Julia worker connection error",
+                        "This error usually occurs as a result of the FastCGI server being unable to connect to a Julia worker process.",
+                        1
+                        );
 
-                break;
+                    break;
             }
 
             // If the worker is owned by this controller, advise that the worker is free.
@@ -979,17 +979,17 @@ void julia_fcgi_create_worker(short int worker_number)
     // Spawn a new worker process.
 
     switch (worker_process_ids[worker_number] = fork()) {
-    case -1:
-        // TO DO
+        case -1:
+            // TO DO
 
-        break;
+            break;
 
-    case 0:
-        julia_fcgi_setup_worker(worker_number);
+        case 0:
+            julia_fcgi_setup_worker(worker_number);
 
-        // exec failed; return control to parent process.
+            // exec failed; return control to parent process.
 
-        exit(child_exit_status);
+            exit(child_exit_status);
     }
 }
 
