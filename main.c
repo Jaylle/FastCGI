@@ -511,7 +511,7 @@ int julia_fcgi_setup_config(int argc, char * argv[])
 
     /* Parse command line options */
 
-    while ((option_flag = getopt(argc, argv, "b:v:h:s:w:p:")) != -1) {
+    while ((option_flag = getopt(argc, argv, "b:v:h:s:w:l:")) != -1) {
         switch (option_flag) {
             case 'l':
                 // Address/port for the FastCGI server to listen on.
