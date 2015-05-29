@@ -34,6 +34,12 @@ extern char **environ;
 
 /* Globals */
 
+FCGX_Request julia_fcgx_request;
+
+int julia_fcgx_listen_socket = -1;
+
+char * julia_fcgi_listen_address = NULL;
+
 char * julia_binary_path = NULL;
 int julia_binary_path_length;
 
@@ -80,12 +86,12 @@ void julia_fcgi_worker_show_error(char * error_header, char * error_description,
     // Show headers, if required.
 
     if (send_header > 0) {
-        printf("Content-Type: text/html; charset=utf-8\r\n\r\n");
+        FCGX_FPrintF(julia_fcgx_request.out, "Content-Type: text/html; charset=utf-8\r\n\r\n");
     }
 
     // Show error.
 
-    printf(
+    FCGX_FPrintF(julia_fcgx_request.out, 
         "<!DOCTYPE html> \
             <html> \
                 <head> \
@@ -107,11 +113,10 @@ void filerecord(char * string)
 {
     FILE * f;
 
-    f = fopen("record.txt", "a+");
+    f = fopen("r", "a+");
 
     fwrite("\n-------\n", 1, strlen("\n-------\n"), f);
     fwrite(string, 1, strlen(string), f);
-    fwrite("\n", 1, 1, f);
 
     fclose(f);
 }
@@ -304,16 +309,6 @@ void julia_virtual_host_send_message(int target_socket, char * message_code, cha
     }
 }
 
-/***
-julia_fcgi_request_setup
-Doesn't do anything anymore.
-**/
-
-unsigned short int julia_fcgi_request_setup()
-{
-    return 1;
-}
-
 /*
 *
 *
@@ -322,7 +317,7 @@ unsigned short int julia_fcgi_request_setup()
 
 void julia_fcgi_create_virtual_host_pool()
 {
-
+    
 }
 
 /****
@@ -353,13 +348,13 @@ short int julia_fcgi_registrar(int registrar_server_socket)
 
     while (
         (
-        worker_socket = accept(
-        registrar_server_socket,
-        (struct sockaddr *) &worker_address,
-        &worker_address_length
-        )
+            worker_socket = accept(
+                registrar_server_socket,
+                (struct sockaddr *) &worker_address,
+                &worker_address_length
+            )
         ) > -1
-        ) {
+    ) {
         // Find a free worker node.
 
         if ((worker_index = julia_fcgi_registrar_find_free_worker_slot()) != -1) {
@@ -371,11 +366,11 @@ short int julia_fcgi_registrar(int registrar_server_socket)
 
             // The first two bytes received will be the port that the worker is listening on.
 
-            julia_fcgi_helper_read_fixed(worker_socket, (char *)&julia_fcgi_workers[worker_index].server_address.sin_port, 2, 0);
+            julia_fcgi_helper_read_fixed(worker_socket, (char *) &julia_fcgi_workers[worker_index].server_address.sin_port, 2, 0);
 
             // The remaining bytes will be an IP address in string form, terminated by a newline (0x0A)
 
-            julia_fcgi_helper_read_until(worker_socket, (char *)&worker_ip_string, sizeof(worker_ip_string)-1, 0, 0x0A);
+            julia_fcgi_helper_read_until(worker_socket, (char *) &worker_ip_string, sizeof(worker_ip_string)-1, 0, 0x0A);
 
             // Convert the IP from string to network notation.
 
@@ -386,8 +381,7 @@ short int julia_fcgi_registrar(int registrar_server_socket)
             julia_fcgi_workers[worker_index].server_address.sin_family = AF_INET;
             julia_fcgi_workers[worker_index].exists = 1;
             julia_fcgi_workers[worker_index].worker_owner_number = -1;
-        }
-        else {
+        } else {
             // Inform the worker that there's no room at the inn.
 
             send(worker_socket, "NRATI", 5, 0);
@@ -424,7 +418,7 @@ short int julia_fcgi_setup_registrar()
     unlink(julia_virtual_host_socket_name);
 
     // Set up sockaddr_un structure.
-
+    
     socket_name_length = strlen(julia_virtual_host_socket_name);
 
     memset(&registrar_server_address, 0x00, sizeof(struct sockaddr_un));
@@ -436,7 +430,7 @@ short int julia_fcgi_setup_registrar()
     registrar_server_address.sun_path[socket_name_length] = 0x00;
 
     // Listen for workers on the domain socket.
-
+    
     if ((registrar_server_socket = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
         return -1;
     }
@@ -517,49 +511,56 @@ int julia_fcgi_setup_config(int argc, char * argv[])
 
     /* Parse command line options */
 
-    while ((option_flag = getopt(argc, argv, "b:v:h:s:w:")) != -1) {
+    while ((option_flag = getopt(argc, argv, "b:v:h:s:w:p:")) != -1) {
         switch (option_flag) {
-        case 'b':
-            // Path to Julia binary.
+            case 'l':
+                // Address/port for the FastCGI server to listen on.
 
-            julia_binary_path = optarg;
+                julia_fcgi_listen_address = optarg;
+                
+                break;
+                
+            case 'b':
+                // Path to Julia binary.
 
-            break;
+                julia_binary_path = optarg;
 
-        case 'v':
-            // Path to Julia virtual host file (see ./julia/worker.jl)
+                break;
 
-            julia_virtual_host_path = optarg;
+            case 'v':
+                // Path to Julia virtual host file (see ./julia/worker.jl)
 
-            break;
+                julia_virtual_host_path = optarg;
 
-        case 'h':
-            // Path for default HOME environment variable.
+                break;
 
-            home_environment_variable = optarg;
+            case 'h':
+                // Path for default HOME environment variable.
 
-            break;
+                home_environment_variable = optarg;
 
-        case 's':
-            // Path for the server socket.
+                break;
 
-            julia_virtual_host_socket_name = optarg;
+            case 's':
+                // Path for the server socket.
 
-            break;
+                julia_virtual_host_socket_name = optarg;
 
-        case 'w':
-            // Number of workers to create.
+                break;
 
-            julia_fcgi_target_workers = strtol(optarg, NULL, 10);
+            case 'w':
+                // Number of workers to create.
 
-            if (julia_fcgi_target_workers == 0) {
-                julia_fcgi_target_workers = 1;
-            }
-            else if (julia_fcgi_target_workers > MAX_WORKER_POOL_SIZE) {
-                julia_fcgi_target_workers = MAX_WORKER_POOL_SIZE;
-            }
+                julia_fcgi_target_workers = strtol(optarg, NULL, 10);
 
-            break;
+                if (julia_fcgi_target_workers == 0) {
+                    julia_fcgi_target_workers = 1;
+                }
+                else if (julia_fcgi_target_workers > MAX_WORKER_POOL_SIZE) {
+                    julia_fcgi_target_workers = MAX_WORKER_POOL_SIZE;
+                }
+
+                break;
         }
     }
 
@@ -571,6 +572,12 @@ int julia_fcgi_setup_config(int argc, char * argv[])
 
     current_exe_directory_length = strlen(current_exe_directory);
 
+    // Set default port.
+    
+    if (julia_fcgi_listen_address == NULL) {
+        julia_fcgi_listen_address = ":4545";
+    }
+    
     // Set default path to Julia binary.
 
     if (julia_binary_path == NULL) {
@@ -614,7 +621,7 @@ int julia_fcgi_setup_config(int argc, char * argv[])
         julia_virtual_host_path[0] = 0x00;
 
         strcat(julia_virtual_host_path, current_exe_directory);
-        strcat(julia_virtual_host_path, "/julia/worker.jl");
+        strcat(julia_virtual_host_path, "/../julia/worker.jl");
     }
 
     // Verify that the specified virtual host file is present and correct.
@@ -622,7 +629,7 @@ int julia_fcgi_setup_config(int argc, char * argv[])
     if (access(julia_virtual_host_path, F_OK) != 0) {
         return -2;
     }
-
+    
     // Set default path to virtual host socket.
 
     if (julia_virtual_host_socket_name == NULL) {
@@ -698,8 +705,8 @@ void julia_fcgi_worker_send_environment(int worker_socket)
 {
     int environment_index = 0;
 
-    while (environ[environment_index] != NULL) {
-        julia_fcgi_worker_send_message(worker_socket, "E", environ[environment_index++]);
+    while (julia_fcgx_request.envp[environment_index] != NULL) {
+        julia_fcgi_worker_send_message(worker_socket, "E", julia_fcgx_request.envp[environment_index++]);
     }
 }
 
@@ -731,7 +738,7 @@ void julia_fcgi_worker_send_post_data(int worker_socket)
 
         bytes_read_network = htonl(bytes_read);
 
-        send(worker_socket, (char *)&bytes_read_network, sizeof(bytes_read_network), 0);
+        send(worker_socket, (char *) &bytes_read_network, sizeof(bytes_read_network), 0);
 
         send(worker_socket, buffer, bytes_read, 0);
     }
@@ -740,7 +747,7 @@ void julia_fcgi_worker_send_post_data(int worker_socket)
 
     bytes_read_network = htonl(0);
 
-    send(worker_socket, (char *)&bytes_read_network, sizeof(bytes_read_network), 0);
+    send(worker_socket, (char *) &bytes_read_network, sizeof(bytes_read_network), 0);
 }
 
 /****
@@ -769,7 +776,7 @@ short int julia_fcgi_worker_read_response(int worker_socket)
     recv_timeout.tv_sec = 1;
     recv_timeout.tv_usec = 0;
 
-    setsockopt(worker_socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&recv_timeout, sizeof(recv_timeout));
+    setsockopt(worker_socket, SOL_SOCKET, SO_RCVTIMEO, (char *) &recv_timeout, sizeof(recv_timeout));
 
     // Read the output.
 
@@ -778,8 +785,10 @@ short int julia_fcgi_worker_read_response(int worker_socket)
 
         if (bytes_read > 0) {
             buffer[bytes_read] = 0x00;
-
-            fwrite(&buffer, 1, bytes_read, FCGI_stdout);
+            
+            // Write to the FCGI request's output stream.
+            
+            FCGX_PutStr((const char *) &buffer, bytes_read, julia_fcgx_request.out);
         }
 
         // Check whether the worker has reached its time limit.
@@ -799,7 +808,7 @@ short int julia_fcgi_worker_read_response(int worker_socket)
             break;
         }
     } while (1);
-
+    
     return 0;
 }
 
@@ -823,11 +832,11 @@ short int julia_fcgi_worker_dispatch_request(short int worker_index)
             worker_socket,
             (struct sockaddr *) &julia_fcgi_workers[worker_index].server_address,
             sizeof(julia_fcgi_workers[worker_index].server_address)
-            ) < 0
+        ) < 0
     ) {
         return -2;
     }
-
+    
     // Send environment variables
 
     julia_fcgi_worker_send_environment(worker_socket);
@@ -849,11 +858,11 @@ short int julia_fcgi_worker_dispatch_request(short int worker_index)
             "Julia timeout error",
             "This error usually occurs as a result of the worker taking too long to respond or close the connection.",
             1
-            );
+        );
 
         // TO DO: Handle this properly.
     }
-
+    
     // Close the connection.
 
     close(worker_socket);
@@ -873,6 +882,25 @@ void julia_fcgi_no_workers_available(short int worker_number)
         "This error usually occurs as a result of the FastCGI server's worker pool being empty.",
         1
     );
+}
+
+/* */
+
+short int julia_fcgx_server_startup()
+{
+    // The ..
+    
+    FCGX_Init();
+    
+    // Create the listening socket.
+    
+    julia_fcgx_listen_socket = FCGX_OpenSocket(julia_fcgi_listen_address, 255);
+    
+    if (julia_fcgx_listen_socket < 0) {
+        return -1;
+    }
+    
+    return 1;
 }
 
 /****
@@ -901,16 +929,20 @@ void julia_fcgi_setup_worker(short int worker_number)
         case 0:
             // Child process morphs into a Julia process.
 
-            execle(julia_binary_path, julia_binary_path, julia_virtual_host_path, julia_virtual_host_socket_name, (char *)0, environ);
+            execle(julia_binary_path, julia_binary_path, julia_virtual_host_path, julia_virtual_host_socket_name, (char *) 0, environ);
 
             // exec failed; return control to parent process.
 
             exit(child_exit_status);
     }
+    
+    // Configure this FastCGI thread.
+    
+    FCGX_InitRequest(&julia_fcgx_request, julia_fcgx_listen_socket, 0);
 
     // Controller now accepts FastCGI connections.
 
-    while (FCGI_Accept() >= 0) {
+    while (FCGX_Accept_r(&julia_fcgx_request) >= 0) {
         // Try to find an available worker.
 
         if ((worker_index = julia_fcgi_find_available_worker()) != -1) {
@@ -919,7 +951,7 @@ void julia_fcgi_setup_worker(short int worker_number)
             if (julia_fcgi_workers[worker_index].worker_owner_number == -1) {
                 julia_fcgi_workers[worker_index].worker_owner_number = worker_number;
             }
-
+            
             // Dispatch the request to the Julia worker.
 
             switch (julia_fcgi_worker_dispatch_request(worker_index)) {
@@ -933,6 +965,7 @@ void julia_fcgi_setup_worker(short int worker_number)
                     );
 
                     break;
+                    
                 case -2:
                     // Connection error. This happens if there's a problem with the Julia worker.
 
@@ -952,19 +985,16 @@ void julia_fcgi_setup_worker(short int worker_number)
             if (julia_fcgi_workers[worker_index].worker_owner_number == worker_number) {
                 julia_fcgi_workers[worker_index].worker_owner_number = -1;
             }
-        }
-        else {
+        } else {
             // The pool is empty; handle it.
 
             julia_fcgi_no_workers_available(worker_number);
         }
 
-        FCGI_Finish();
+        FCGX_Finish_r(&julia_fcgx_request);
 
         continue;
     }
-
-    // 
 }
 
 /****
@@ -1024,6 +1054,14 @@ int main(int argc, char * argv[])
     if ((setup_code = julia_fcgi_setup(argc, argv)) < 0) {
         julia_fcgi_cleanup();
 
+        return setup_code;
+    }
+    
+    // Start FCGI server.
+    
+    if ((setup_code = julia_fcgx_server_startup()) < 0) {
+        julia_fcgi_cleanup();
+        
         return setup_code;
     }
 

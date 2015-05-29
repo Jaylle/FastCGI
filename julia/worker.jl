@@ -242,6 +242,10 @@ if (response == 'T')
 
         write(registrar, "127.0.0.1\n")
 
+        # Send the process ID as a newline-terminated string.
+
+        write(registrar, string(getpid()) * "\n")
+
         # ...
 
         close(registrar)
